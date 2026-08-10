@@ -93,7 +93,9 @@ pub fn compute_diff(left: &str, right: &str, mode: DiffMode) -> Result<Vec<DiffL
 
 /// Compute diff at line granularity.
 fn compute_line_diff(left: &str, right: &str) -> Result<Vec<DiffLine>, CoreError> {
-    let diff = TextDiff::from_lines(left, right);
+    let left_for_diff = normalize_line_input(left);
+    let right_for_diff = normalize_line_input(right);
+    let diff = TextDiff::from_lines(&left_for_diff, &right_for_diff);
     let mut result = Vec::new();
     let mut left_line = 1usize;
     let mut right_line = 1usize;
@@ -144,8 +146,44 @@ fn compute_line_diff(left: &str, right: &str) -> Result<Vec<DiffLine>, CoreError
 
     // Post-process: merge adjacent Delete+Insert pairs into Modified
     result = merge_modified_lines(result);
+    restore_missing_final_newline(&mut result, left, right);
 
     Ok(result)
+}
+
+fn normalize_line_input(text: &str) -> String {
+    if text.is_empty() || text.ends_with('\n') {
+        text.to_string()
+    } else {
+        format!("{text}\n")
+    }
+}
+
+fn restore_missing_final_newline(lines: &mut [DiffLine], left: &str, right: &str) {
+    let left_last_line = split_patch_lines(left).len();
+    if !left.ends_with('\n') {
+        for line in lines.iter_mut().rev() {
+            if line.left_line_no == Some(left_last_line)
+                && let Some(text) = line.left_text.as_mut()
+                && text.ends_with('\n')
+            {
+                text.pop();
+                break;
+            }
+        }
+    }
+    let right_last_line = split_patch_lines(right).len();
+    if !right.ends_with('\n') {
+        for line in lines.iter_mut().rev() {
+            if line.right_line_no == Some(right_last_line)
+                && let Some(text) = line.right_text.as_mut()
+                && text.ends_with('\n')
+            {
+                text.pop();
+                break;
+            }
+        }
+    }
 }
 
 /// Merge adjacent Removed + Added pairs into Modified lines.
@@ -772,6 +810,23 @@ mod tests {
         assert_eq!(result[1].kind, DiffLineKind::Modified);
         assert_eq!(result[1].left_text.as_deref(), Some("world\n"));
         assert_eq!(result[1].right_text.as_deref(), Some("earth\n"));
+    }
+
+    #[test]
+    fn test_compute_line_diff_keeps_following_equal_line_aligned() {
+        let result = compute_diff(
+            "alpha\nbeta\ngamma",
+            "alpha\nBETA\ngamma\ndelta",
+            DiffMode::Lines,
+        )
+        .unwrap();
+        assert_eq!(result[0].kind, DiffLineKind::Unchanged);
+        assert_eq!(result[1].kind, DiffLineKind::Modified);
+        assert_eq!(result[1].left_text.as_deref(), Some("beta\n"));
+        assert_eq!(result[1].right_text.as_deref(), Some("BETA\n"));
+        assert_eq!(result[2].kind, DiffLineKind::Unchanged);
+        assert_eq!(result[2].left_text.as_deref(), Some("gamma"));
+        assert_eq!(result[3].kind, DiffLineKind::Added);
     }
 
     #[test]
