@@ -1,0 +1,13 @@
+{
+  "config": {
+    "MD013": false
+  },
+  "ignores": [
+    "**/blob-report/**",
+    "**/node_modules/**",
+    "**/pkg/**",
+    "**/playwright-report/**",
+    "**/target/**",
+    "**/test-results/**"
+  ]
+}
