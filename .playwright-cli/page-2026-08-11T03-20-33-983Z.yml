@@ -1,0 +1,73 @@
+- generic [ref=e1]:
+  - link "Skip to workspace" [ref=e2] [cursor=pointer]:
+    - /url: "#workspace"
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e6]: dv
+        - generic [ref=e7]: diff_viz
+      - button "Switch language" [ref=e13] [cursor=pointer]: 中文
+    - main [ref=e14]:
+      - region "Diff controls" [ref=e15]:
+        - generic [ref=e16]:
+          - group "Diff granularity" [ref=e17]:
+            - button "Lines" [ref=e18] [cursor=pointer]
+            - button "Words" [ref=e19] [cursor=pointer]
+            - button "Chars" [ref=e20] [cursor=pointer]
+          - group "Diff view" [ref=e21]:
+            - button "Side by side" [ref=e22] [cursor=pointer]
+            - button "Unified" [ref=e23] [cursor=pointer]
+            - button "JSON" [ref=e24] [cursor=pointer]
+          - generic [ref=e25]:
+            - generic [ref=e26]: Context
+            - spinbutton "Context lines" [ref=e27]: "3"
+        - generic [ref=e28]:
+          - button "Compare" [active] [ref=e29] [cursor=pointer]
+          - button "Export patch" [ref=e30] [cursor=pointer]
+          - button "Apply patch" [ref=e31] [cursor=pointer]
+          - button "Clear" [ref=e32] [cursor=pointer]
+      - region "Text inputs" [ref=e33]:
+        - generic [ref=e34]:
+          - article [ref=e35]:
+            - generic [ref=e36]:
+              - generic [ref=e37]: Original
+              - button "Paste" [ref=e38] [cursor=pointer]
+            - generic [ref=e39]: Original text
+            - textbox "Original text" [ref=e40]:
+              - /placeholder: Paste or type original text...
+              - text: "name: Tinkora\\nstatus: draft"
+            - generic [ref=e41]:
+              - generic [ref=e42]: 28 chars
+              - generic [ref=e43]: stays on this device
+          - article [ref=e44]:
+            - generic [ref=e45]:
+              - generic [ref=e46]: Modified
+              - button "Paste" [ref=e47] [cursor=pointer]
+            - generic [ref=e48]: Modified text
+            - textbox "Modified text" [ref=e49]:
+              - /placeholder: Paste or type modified text...
+              - text: "name: Tinkora\\nstatus: public"
+            - generic [ref=e50]:
+              - generic [ref=e51]: 29 chars
+              - generic [ref=e52]: stays on this device
+      - region [ref=e53]:
+        - generic [ref=e54]:
+          - heading "Review Lines / Side by side" [level=1] [ref=e55]:
+            - generic [ref=e56]: Review
+            - generic [ref=e57]: Lines / Side by side
+          - generic [ref=e65]: 1 changed
+        - table "Side-by-side diff" [ref=e68]:
+          - rowgroup [ref=e76]:
+            - row [ref=e77]:
+              - cell "1" [ref=e78]
+              - cell "~" [ref=e79]
+              - 'cell "name: Tinkora\\nstatus: draft" [ref=e80]'
+              - cell "1" [ref=e81]
+              - cell "~" [ref=e82]
+              - 'cell "name: Tinkora\\nstatus: public" [ref=e83]'
+    - contentinfo [ref=e60]:
+      - strong [ref=e61]: diff_viz
+      - generic [ref=e62]: No uploads. No server. Your text stays local.
+      - link "Tinkora" [ref=e63] [cursor=pointer]:
+        - /url: https://github.com/Tinkora/diff_viz
+      - generic [ref=e64]: MIT

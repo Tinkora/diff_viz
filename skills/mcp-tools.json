@@ -1,0 +1,105 @@
+{
+  "name": "diff_viz",
+  "version": "0.1.0",
+  "description": "Browser-native text and code diff workspace with side-by-side and unified views, semantic JSON comparison, and unified patch generation and apply. All computation runs locally through Rust/WASM.",
+  "tools": [
+    {
+      "name": "compute_diff",
+      "description": "Compute the difference between two text inputs. Returns an array of DiffLine objects with line numbers, change kind, and text content.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "left": {
+            "type": "string",
+            "description": "Original text."
+          },
+          "right": {
+            "type": "string",
+            "description": "Modified text."
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["lines", "words", "chars"],
+            "default": "lines",
+            "description": "Diff granularity: lines, words, or characters."
+          }
+        },
+        "required": ["left", "right"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "generate_unified_diff",
+      "description": "Generate a standard unified diff patch (POSIX diff -u format).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "left": {
+            "type": "string",
+            "description": "Original text."
+          },
+          "right": {
+            "type": "string",
+            "description": "Modified text."
+          },
+          "left_label": {
+            "type": "string",
+            "default": "original",
+            "description": "Label for the original file in the patch header."
+          },
+          "right_label": {
+            "type": "string",
+            "default": "modified",
+            "description": "Label for the modified file in the patch header."
+          },
+          "context_lines": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 3,
+            "description": "Number of context lines around each change."
+          }
+        },
+        "required": ["left", "right"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "apply_patch",
+      "description": "Apply a unified diff patch to original text and return the reconstructed modified text.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "original": {
+            "type": "string",
+            "description": "Original text to apply the patch to."
+          },
+          "patch": {
+            "type": "string",
+            "description": "Unified diff patch string."
+          }
+        },
+        "required": ["original", "patch"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "json_diff",
+      "description": "Compute a semantic JSON diff by comparing keys and values rather than raw text positions.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "left": {
+            "type": "string",
+            "description": "Original JSON string."
+          },
+          "right": {
+            "type": "string",
+            "description": "Modified JSON string."
+          }
+        },
+        "required": ["left", "right"],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

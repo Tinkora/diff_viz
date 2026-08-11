@@ -5,7 +5,7 @@ resolver = "3"
 [workspace.package]
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/agentcommons/diff_viz"
+repository = "https://github.com/Tinkora/diff_viz"
 rust-version = "1.95"
 
 [workspace.dependencies]

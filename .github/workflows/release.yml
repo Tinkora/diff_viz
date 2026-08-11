@@ -1,0 +1,287 @@
+name: Release
+
+'on':
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.repository }}-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.ref_name }}
+
+jobs:
+  preflight:
+    name: Reject an existing release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Verify release does not exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          status="$(curl --proto '=https' --tlsv1.2 --silent --show-error \
+            --output /dev/null --write-out '%{http_code}' \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
+          [[ "$status" == 404 ]] || { echo "release lookup returned HTTP $status" >&2; exit 1; }
+
+  validate:
+    name: Validate release metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    permissions:
+      contents: read
+    steps:
+      - name: Check out tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate tag, package versions, and changelog
+        id: release
+        shell: bash
+        env:
+          NOTES_PATH: ${{ runner.temp }}/release-notes.md
+        run: |
+          set -euo pipefail
+          semver='(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*)|([0-9]*[A-Za-z-][0-9A-Za-z-]*))(\.((0|[1-9][0-9]*)|([0-9]*[A-Za-z-][0-9A-Za-z-]*)))*)?(\+([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?'
+          [[ "$RELEASE_TAG" =~ ^v${semver}$ ]] || { echo "tag must be v followed by full SemVer" >&2; exit 1; }
+          version="${RELEASE_TAG#v}"
+          tag_commit="$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")"
+          [[ "$tag_commit" == "$GITHUB_SHA" ]] || { echo "tag does not identify workflow commit" >&2; exit 1; }
+          cargo metadata --format-version 1 --no-deps --locked | jq -e --arg version "$version" '
+            .workspace_members as $members |
+            [.packages[] | select(.id as $id | $members | index($id))] as $packages |
+            ($packages | length > 0) and ([$packages[] | select(.version != $version)] | length == 0)
+          ' >/dev/null
+          VERSION="$version" ruby <<'RUBY'
+          version = ENV.fetch("VERSION")
+          changelog = File.read("CHANGELOG.md", encoding: "UTF-8")
+          header = /^## \[#{Regexp.escape(version)}\] - \d{4}-\d{2}-\d{2}$/
+          match = changelog.match(header)
+          abort("CHANGELOG.md has no #{version} release section") unless match
+          boundary = changelog.match(/^## /, match.end(0))
+          notes = changelog[match.end(0)...(boundary&.begin(0) || changelog.length)].strip
+          abort("CHANGELOG.md #{version} release section is empty") if notes.empty?
+          File.write(ENV.fetch("NOTES_PATH"), "#{notes}\n", encoding: "UTF-8")
+          RUBY
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Upload validated release notes
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-notes-${{ github.run_id }}
+          path: ${{ runner.temp }}/release-notes.md
+          if-no-files-found: error
+          retention-days: 7
+
+  quality:
+    name: Rust and WebAssembly quality
+    needs: validate
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/quality.yml
+
+  documentation:
+    name: Documentation quality
+    needs: validate
+    permissions:
+      contents: read
+    uses: ./.github/workflows/docs-quality.yml
+
+  supply-chain:
+    name: Supply-chain audit
+    needs: validate
+    permissions:
+      contents: read
+    uses: ./.github/workflows/supply-chain.yml
+
+  build:
+    name: Build web archive
+    needs: [validate, quality, documentation, supply-chain, preflight]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Check out tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Rust and wasm-pack
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.95.0 --profile minimal --no-self-update
+          rustup target add wasm32-unknown-unknown --toolchain 1.95.0
+          cargo +1.95.0 install wasm-pack --version 0.15.0 --locked
+
+      - name: Build reviewed web package
+        env:
+          RUSTUP_TOOLCHAIN: 1.95.0
+          VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="diff_viz-web-v${VERSION}"
+          stage="staging/${package}"
+          mkdir -p "$stage/pkg" release-source
+          cp -a crates/diff_viz_web/static/. "$stage/"
+          rm -rf "$stage/pkg"
+          mkdir -p "$stage/pkg"
+          wasm-pack build --target web --release --out-dir "$GITHUB_WORKSPACE/$stage/pkg" crates/diff_viz_web
+          find "$stage/pkg" -maxdepth 1 -type f -name .gitignore -delete
+          cp README.md README.zh-CN.md CHANGELOG.md LICENSE "$stage/"
+          find "$stage" -type l -delete
+          epoch="$(git show -s --format=%ct "$GITHUB_SHA")"
+          TZ=UTC tar --sort=name --mtime="@${epoch}" --owner=0 --group=0 --numeric-owner \
+            -czf "release-source/${package}.tar.gz" -C staging "$package"
+          (cd staging && zip -X -9 -r "../release-source/${package}.zip" "$package" >/dev/null)
+          jq -n --arg commit "$GITHUB_SHA" --arg version "$VERSION" \
+            '{commit: $commit, version: $version}' > release-source/release-metadata.json
+
+      - name: Upload release source
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-source-${{ github.run_id }}
+          path: release-source
+          if-no-files-found: error
+          retention-days: 7
+
+  evidence:
+    name: Generate checksums, SBOM, and license evidence
+    needs: [validate, build, preflight]
+    permissions:
+      contents: read
+    uses: Tinkora/.github/.github/workflows/reusable-release.yml@af8ae92c2083c55283187be0d6a1ffba7740df86 # Tinkora organization baseline
+    with:
+      source-artifact-name: release-source-${{ github.run_id }}
+      version: ${{ needs.validate.outputs.version }}
+      publish: false
+
+  attest:
+    name: Attest release archives
+    needs: [validate, evidence]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - name: Download release candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.evidence.outputs.candidate-artifact-name }}
+          path: release-candidate
+
+      - name: Verify candidate checksums
+        run: cd release-candidate && sha256sum --check --strict SHA256SUMS
+
+      - name: Attest tar archive
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release-candidate/diff_viz-web-v${{ needs.validate.outputs.version }}.tar.gz
+
+      - name: Attest tar SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release-candidate/diff_viz-web-v${{ needs.validate.outputs.version }}.tar.gz
+          sbom-path: release-candidate/SBOM.spdx.json
+
+      - name: Attest zip archive
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release-candidate/diff_viz-web-v${{ needs.validate.outputs.version }}.zip
+
+      - name: Attest zip SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: release-candidate/diff_viz-web-v${{ needs.validate.outputs.version }}.zip
+          sbom-path: release-candidate/SBOM.spdx.json
+
+  verify:
+    name: Verify release candidate
+    needs: [validate, evidence, attest]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Download release candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.evidence.outputs.candidate-artifact-name }}
+          path: release-candidate
+
+      - name: Verify paths, assets, and checksums
+        shell: bash
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          candidate="release-candidate"
+          if find "$candidate" -type l -print -quit | grep -q .; then exit 1; fi
+          if find "$candidate" ! -type f ! -type d -print -quit | grep -q .; then exit 1; fi
+          expected=("diff_viz-web-v${VERSION}.tar.gz" "diff_viz-web-v${VERSION}.zip" SHA256SUMS SBOM.spdx.json LICENSES.json)
+          for name in "${expected[@]}"; do [[ -f "$candidate/$name" ]] || { echo "missing release asset: $name" >&2; exit 1; }; done
+          [[ "$(find "$candidate" -maxdepth 1 -type f | wc -l | tr -d ' ')" == "5" ]]
+          (cd "$candidate" && sha256sum --check --strict SHA256SUMS)
+
+  release:
+    name: Publish GitHub Release
+    needs: [validate, evidence, verify]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Download verified release candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.evidence.outputs.candidate-artifact-name }}
+          path: release-candidate
+
+      - name: Download validated release notes
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-notes-${{ github.run_id }}
+          path: release-notes
+
+      - name: Reverify and publish immutable assets
+        shell: bash
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          set -euo pipefail
+          (cd release-candidate && sha256sum --check --strict SHA256SUMS)
+          mapfile -d '' assets < <(find release-candidate -maxdepth 1 -type f -print0 | LC_ALL=C sort -z)
+          [[ "${#assets[@]}" == "5" ]]
+          release_id="$(gh api --method POST "repos/${GH_REPO}/releases" \
+            -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" -f name="$TAG" \
+            -f body="$(cat release-notes/release-notes.md)" -F draft=true -F prerelease=false --jq '.id')"
+          gh api "repos/${GH_REPO}/releases/${release_id}" --jq '.draft' | grep -qx true
+          gh release upload "$TAG" "${assets[@]}"
+          gh api --method PATCH "repos/${GH_REPO}/releases/${release_id}" -F draft=false --jq '.draft' | grep -qx false
