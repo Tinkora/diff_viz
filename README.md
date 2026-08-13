@@ -6,6 +6,8 @@
 [![Rust 1.95+](https://img.shields.io/badge/rust-1.95%2B-orange.svg)](https://www.rust-lang.org)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](./CONTRIBUTING.md)
 
+[![Support Tinkora on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/tinkora)
+
 `diff_viz` is a browser-native text and code diff workspace. Compare two inputs
 side by side or as a unified patch, inspect JSON changes semantically, and apply
 or export patches. Rust/WASM performs every operation locally in the browser.
