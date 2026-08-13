@@ -3,7 +3,17 @@
 [![CI](https://github.com/Tinkora/diff_viz/actions/workflows/ci.yml/badge.svg)](https://github.com/Tinkora/diff_viz/actions/workflows/ci.yml)
 [![许可证：MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 
-[![在 Ko-fi 上支持 Tinkora](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/tinkora)
+<!-- markdownlint-disable MD033 -->
+<p align="center">
+  <a href="https://ko-fi.com/tinkora" target="_blank" rel="noopener noreferrer">
+    <img
+      src="https://ko-fi.com/img/githubbutton_sm.svg"
+      alt="在 Ko-fi 上支持 Tinkora"
+      width="520"
+    >
+  </a>
+</p>
+<!-- markdownlint-enable MD033 -->
 
 `diff_viz` 是一个浏览器原生的文本和代码差异审查工作区。它支持并排或
 统一补丁视图、JSON 语义差异、补丁生成与应用，所有计算均由 Rust/WASM
